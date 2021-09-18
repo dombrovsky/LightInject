@@ -3,6 +3,7 @@
     <TargetFrameworks>netcoreapp2.0;netcoreapp1.1;net46;net452</TargetFrameworks>
     <!-- <TargetFrameworks>netcoreapp1.1;netcoreapp2.0;net46;net452</TargetFrameworks> -->
     <NoWarn>$(NoWarn);CS0579</NoWarn>
+    <LangVersion>8.0</LangVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -11,18 +12,11 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="LightMock" Version="1.0.1" />
-
     <PackageReference Include="System.Reflection.Emit" Version="4.3.0" />
-
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="15.9.0" />
-
     <PackageReference Include="System.Reflection.Emit.ILGeneration" Version="4.3.0" />
     <DotNetCliToolReference Include="dotnet-reportgenerator-cli" Version="4.1.4" />
-
-
     <PackageReference Include="xunit" Version="2.4.1" />
-
-
     <PackageReference Include="xUnit.Analyzers" Version="0.10.0" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.4.1">
       <PrivateAssets>all</PrivateAssets>
@@ -32,6 +26,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="System.Threading.Tasks.Extensions" Version="4.5.4" />
   </ItemGroup>
   <ItemGroup Condition=" '$(TargetFramework)' == 'netcoreapp2.0' Or '$(TargetFramework)' == 'netstandard1.6'">
     <PackageReference Include="System.Diagnostics.Process" Version="4.3.0" />

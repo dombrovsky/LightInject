@@ -1,3 +1,5 @@
+using System.Threading.Tasks;
+
 namespace LightInject.Tests
 {
     using System;
@@ -389,6 +391,11 @@ namespace LightInject.Tests
         }
 
         public object Create(Type serviceType)
+        {
+            throw new NotImplementedException();
+        }
+
+        public ValueTask DisposeAsync()
         {
             throw new NotImplementedException();
         }

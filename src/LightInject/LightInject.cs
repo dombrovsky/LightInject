@@ -55,6 +55,7 @@ namespace LightInject
     using System.Text;
     using System.Text.RegularExpressions;
     using System.Threading;
+    using System.Threading.Tasks;
 
     /// <summary>
     /// A delegate that represents the dynamic method compiled to resolved service instances.
@@ -686,7 +687,7 @@ namespace LightInject
     /// <summary>
     /// Represents an inversion of control container.
     /// </summary>
-    public interface IServiceContainer : IServiceRegistry, IServiceFactory, IDisposable
+    public interface IServiceContainer : IServiceRegistry, IServiceFactory, IAsyncDisposable, IDisposable
     {
         /// <summary>
         /// Gets or sets the <see cref="IScopeManagerProvider"/> that is responsible
@@ -3346,14 +3347,38 @@ namespace LightInject
             return this;
         }
 
+        public async ValueTask DisposeAsync()
+        {
+            await DisposeAsyncCore().ConfigureAwait(false);
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
         /// <inheritdoc/>
         public void Dispose()
         {
-            var disposableLifetimeInstances = disposableLifeTimes.Items
-                .Where(lt => lt is IDisposable).Cast<IDisposable>().Reverse();
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual async ValueTask DisposeAsyncCore()
+        {
+            var disposableLifetimeInstances = disposableLifeTimes.Items.OfType<IAsyncDisposable>().Reverse();
             foreach (var disposableLifetimeInstance in disposableLifetimeInstances)
             {
-                disposableLifetimeInstance.Dispose();
+                await disposableLifetimeInstance.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                var disposableLifetimeInstances = disposableLifeTimes.Items.OfType<IDisposable>().Reverse();
+                foreach (var disposableLifetimeInstance in disposableLifetimeInstances)
+                {
+                    disposableLifetimeInstance.Dispose();
+                }
             }
         }
 
@@ -6355,7 +6380,7 @@ namespace LightInject
     /// Ensures that only one instance of a given service can exist within the current <see cref="IServiceContainer"/>.
     /// </summary>
     [LifeSpan(30)]
-    public class PerContainerLifetime : ILifetime, IDisposable, ICloneableLifeTime
+    public class PerContainerLifetime : ILifetime, ICloneableLifeTime, IAsyncDisposable, IDisposable
     {
         private readonly object syncRoot = new object();
         private volatile object singleton;
@@ -6391,21 +6416,45 @@ namespace LightInject
             return singleton;
         }
 
+        /// <inheritdoc/>
+        public ILifetime Clone()
+        {
+            return new PerContainerLifetime();
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await DisposeAsyncCore().ConfigureAwait(false);
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
         /// <summary>
         /// Disposes the service instances managed by this <see cref="PerContainerLifetime"/> instance.
         /// </summary>
         public void Dispose()
         {
-            if (singleton is IDisposable disposable)
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual async ValueTask DisposeAsyncCore()
+        {
+            if (singleton is IAsyncDisposable disposable)
             {
-                disposable.Dispose();
+                await disposable.DisposeAsync().ConfigureAwait(false);
             }
         }
 
-        /// <inheritdoc/>
-        public ILifetime Clone()
+        protected virtual void Dispose(bool disposing)
         {
-            return new PerContainerLifetime();
+            if (disposing)
+            {
+                if (singleton is IDisposable disposable)
+                {
+                    disposable.Dispose();
+                }
+            }
         }
     }
 
@@ -6551,7 +6600,7 @@ namespace LightInject
     /// <summary>
     /// Represents a scope.
     /// </summary>
-    public class Scope : IServiceFactory, IDisposable
+    public class Scope : IServiceFactory, IAsyncDisposable, IDisposable
     {
         /// <summary>
         /// Gets a value indicating whether this scope has been disposed.
@@ -6570,6 +6619,8 @@ namespace LightInject
         private readonly ServiceContainer serviceFactory;
 
         private List<IDisposable> disposableObjects;
+
+        private List<IAsyncDisposable> asyncDisposableObjects;
 
         private ImmutableMapTree<object> createdInstances = ImmutableMapTree<object>.Empty;
 
@@ -6616,22 +6667,61 @@ namespace LightInject
             }
         }
 
-        /// <summary>
-        /// Disposes all instances tracked by this scope.
-        /// </summary>
-        public void Dispose()
+        public void TrackInstance(IAsyncDisposable disposable)
         {
-            if (disposableObjects != null && disposableObjects.Count > 0)
+            lock (lockObject)
             {
-                HashSet<IDisposable> disposedObjects = new HashSet<IDisposable>(ReferenceEqualityComparer<IDisposable>.Default);
-
-                for (var i = disposableObjects.Count - 1; i >= 0; i--)
+                if (asyncDisposableObjects == null)
                 {
-                    if (disposableObjects[i] is IDisposable disposable)
+                    asyncDisposableObjects = new List<IAsyncDisposable>();
+                }
+
+                asyncDisposableObjects.Add(disposable);
+            }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await DisposeAsyncCore().ConfigureAwait(false);
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual async ValueTask DisposeAsyncCore()
+        {
+            if (asyncDisposableObjects != null && asyncDisposableObjects.Count > 0)
+            {
+                HashSet<IAsyncDisposable> disposedObjects = new HashSet<IAsyncDisposable>(ReferenceEqualityComparer<IAsyncDisposable>.Default);
+
+                for (var i = asyncDisposableObjects.Count - 1; i >= 0; i--)
+                {
+                    if (asyncDisposableObjects[i] is IAsyncDisposable disposable)
                     {
                         if (disposedObjects.Add(disposable))
                         {
-                            disposable.Dispose();
+                            await disposable.DisposeAsync().ConfigureAwait(false);
+                        }
+                    }
+                }
+            }
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                if (disposableObjects != null && disposableObjects.Count > 0)
+                {
+                    HashSet<IDisposable> disposedObjects = new HashSet<IDisposable>(ReferenceEqualityComparer<IDisposable>.Default);
+
+                    for (var i = disposableObjects.Count - 1; i >= 0; i--)
+                    {
+                        if (disposableObjects[i] is IDisposable disposable)
+                        {
+                            if (disposedObjects.Add(disposable))
+                            {
+                                disposable.Dispose();
+                            }
                         }
                     }
                 }
@@ -6641,6 +6731,15 @@ namespace LightInject
             var completedHandler = Completed;
             completedHandler?.Invoke(this, new EventArgs());
             IsDisposed = true;
+        }
+
+        /// <summary>
+        /// Disposes all instances tracked by this scope.
+        /// </summary>
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
         }
 
         /// <inheritdoc/>
@@ -6692,9 +6791,15 @@ namespace LightInject
                 if (createdInstance == null)
                 {
                     createdInstance = getInstanceDelegate(arguments, this);
+
                     if (createdInstance is IDisposable disposable)
                     {
                         TrackInstance(disposable);
+                    }
+
+                    if (createdInstance is IAsyncDisposable asyncDisposable)
+                    {
+                        TrackInstance(asyncDisposable);
                     }
 
                     Interlocked.Exchange(ref createdInstances, createdInstances.Add(instanceDelegateIndex, createdInstance));
@@ -8457,6 +8562,20 @@ namespace LightInject
         {
             if (instance is IDisposable disposable)
             {
+                ThrowIfScopeIsNull();
+                scope.TrackInstance(disposable);
+            }
+
+            if (instance is IAsyncDisposable asynDisposable)
+            {
+                ThrowIfScopeIsNull();
+                scope.TrackInstance(asynDisposable);
+            }
+
+            return instance;
+
+            void ThrowIfScopeIsNull()
+            {
                 if (scope == null)
                 {
                     string message = $@"The disposable instance ({instance.GetType()}) was created outside a scope. If 'ContainerOptions.EnableCurrentScope=false',
@@ -8464,11 +8583,7 @@ the service must be requested directly from the scope. If `ContainerOptions.Enab
 but either way the scope has to be started with 'container.BeginScope()'";
                     throw new InvalidOperationException(message);
                 }
-
-                scope.TrackInstance(disposable);
             }
-
-            return instance;
         }
 
         public static Scope ValidateScope<TService>(Scope scope)
@@ -8838,5 +8953,20 @@ but either way the scope has to be started with 'container.BeginScope()'";
 
         private static Type CreateEnumerableType(Type type) =>
             typeof(IEnumerable<>).MakeGenericType(type);
+    }
+}
+
+namespace System
+{
+    using System.Threading.Tasks;
+
+    /// <summary>Provides a mechanism for releasing unmanaged resources asynchronously.</summary>
+    public partial interface IAsyncDisposable
+    {
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing, or
+        /// resetting unmanaged resources asynchronously.
+        /// </summary>
+        ValueTask DisposeAsync();
     }
 }

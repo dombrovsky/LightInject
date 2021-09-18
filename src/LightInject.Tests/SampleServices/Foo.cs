@@ -855,6 +855,17 @@ namespace LightInject.SampleLibrary
         }
     }
 
+    public class AsyncDisposableFoo : IFoo, IAsyncDisposable
+    {
+        public bool IsDisposed { get; private set; }
+
+        public async ValueTask DisposeAsync()
+        {
+            await Task.FromResult(0);
+            IsDisposed = true;
+        }
+    }
+
     public class ConcreteFoo
     {
 
